@@ -1,0 +1,127 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $frontend := index .Values.workloads "frontend" }}
+{{- $catalog := index .Values.workloads "catalog-api" }}
+{{- $order := index .Values.workloads "order-api" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsNamespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsPodSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.frontendIngressCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $frontend.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: catalog-api
+      ports:
+        - {protocol: TCP, port: {{ $catalog.port }}}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: order-api
+      ports:
+        - {protocol: TCP, port: {{ $order.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: catalog-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: catalog-api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: order-api
+      ports:
+        - {protocol: TCP, port: {{ $catalog.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: order-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: order-api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+      ports:
+        - {protocol: TCP, port: {{ $order.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: order-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: order-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: catalog-api
+      ports:
+        - {protocol: TCP, port: {{ $catalog.port }}}
+{{- end }}

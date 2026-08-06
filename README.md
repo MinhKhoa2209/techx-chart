@@ -1,8 +1,41 @@
 # TechX Chart
 
-Helm and Argo CD configuration for the TechX internship thin slice. Workload
-manifests are implemented in Phase 5 after the platform contract is verified
-locally.
+Helm and Argo CD configuration for the TechX internship thin slice. The chart
+owns exactly three restricted workloads and exposes only the frontend through
+one temporary AWS ALB Ingress.
+
+## Validate and test
+
+Static checks render the AWS desired state, exercise schema-negative cases,
+and assert resource count, exposure, rollout, probe, secret, and security
+contracts:
+
+```powershell
+./scripts/verify.ps1
+```
+
+The local overlay keeps production-like Deployments, Services, probes,
+resources, security contexts, Secret references, and NetworkPolicies while
+disabling the AWS-specific Ingress. It uses the Phase 4 images already built
+as `techx/frontend:local`, `techx/catalog:local`, and `techx/order:local`:
+
+```powershell
+./scripts/local-k8s.ps1 -Action Test
+./scripts/local-k8s.ps1 -Action Cleanup
+```
+
+The test profile uses Minikube with Calico, executes the real business flow,
+restarts Catalog, performs Helm upgrade/rollback, verifies an untrusted pod is
+denied, and uninstalls the release and workload namespace. No ALB is mocked or
+claimed as locally tested.
+
+## GitOps ownership
+
+`gitops/clusters/demo/application.yaml` is the only workload bootstrap object
+applied manually on AWS. Argo CD reads `values-demo.yaml`, creates the
+restricted namespace, then owns sync, prune, self-heal, and rollback-by-revert.
+The Secret is always bootstrapped outside Git. Catalog, Order, and Argo CD stay
+private; no observability stack or public administrative UI is included.
 
 ## Shared deployment contract
 

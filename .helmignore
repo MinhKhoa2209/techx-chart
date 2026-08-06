@@ -1,0 +1,7 @@
+.git/
+.gitignore
+evidence/
+scripts/
+tests/
+*.md
+

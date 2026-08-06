@@ -1,0 +1,14 @@
+workloads:
+  frontend:
+    image:
+      repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/frontend
+      tag: demo-5a9137e
+  catalog-api:
+    image:
+      repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/catalog
+      tag: demo-5a9137e
+  order-api:
+    image:
+      repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/order
+      tag: demo-5a9137e
+

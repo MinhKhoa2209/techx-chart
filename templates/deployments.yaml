@@ -1,0 +1,109 @@
+{{- range $name, $config := .Values.workloads }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "techx.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $config.replicas }}
+  revisionHistoryLimit: {{ $.Values.global.revisionHistoryLimit }}
+  minReadySeconds: {{ $.Values.global.minReadySeconds }}
+  progressDeadlineSeconds: {{ $.Values.global.progressDeadlineSeconds }}
+  strategy:
+    type: {{ $config.strategy }}
+    {{- if eq $config.strategy "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "techx.selectorLabels" (dict "Chart" $.Chart "Values" $.Values "Release" $.Release "component" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "techx.selectorLabels" (dict "Chart" $.Chart "Values" $.Values "Release" $.Release "component" $name) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ $.Values.global.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $name }}
+          image: {{ printf "%s:%s" $config.image.repository $config.image.tag | quote }}
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ $config.port }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := $config.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if or (eq $name "frontend") (eq $name "order-api") }}
+            - name: ORDER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.secret.name }}
+                  key: {{ $.Values.secret.orderApiKeyKey }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 3"]
+          resources:
+            {{- toYaml $config.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq $name "frontend" }}
+            - name: next-cache
+              mountPath: /app/src/frontend/.next/cache
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+        {{- if eq $name "frontend" }}
+        - name: next-cache
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- end }}
+{{- end }}
+

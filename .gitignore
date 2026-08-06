@@ -1,4 +1,4 @@
 .env
 *.log
 rendered/
-
+.local-k8s-diagnostic.log

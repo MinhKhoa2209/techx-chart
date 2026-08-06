@@ -1,0 +1,93 @@
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  imagePullPolicy: IfNotPresent
+  terminationGracePeriodSeconds: 20
+  minReadySeconds: 5
+  progressDeadlineSeconds: 300
+  revisionHistoryLimit: 3
+
+secret:
+  name: techx-demo-secrets
+  orderApiKeyKey: order-api-key
+
+networkPolicy:
+  enabled: true
+  frontendIngressCidrs:
+    - 10.42.0.0/16
+  dnsNamespaceSelector:
+    kubernetes.io/metadata.name: kube-system
+  dnsPodSelector:
+    k8s-app: kube-dns
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ip-address-type: ipv4
+    alb.ingress.kubernetes.io/inbound-cidrs: 0.0.0.0/0
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/load-balancer-attributes: deletion_protection.enabled=false
+    alb.ingress.kubernetes.io/tags: Project=techx,Environment=demo,ManagedBy=kubernetes
+  path: /
+
+workloads:
+  frontend:
+    image:
+      repository: techx/frontend
+      tag: demo-placeholder
+    port: 3000
+    replicas: 1
+    strategy: RollingUpdate
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    env:
+      CATALOG_API_URL: http://catalog-api:3001
+      ORDER_API_URL: http://order-api:3002
+  catalog-api:
+    image:
+      repository: techx/catalog
+      tag: demo-placeholder
+    port: 3001
+    replicas: 1
+    strategy: RollingUpdate
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      CATALOG_PORT: "3001"
+  order-api:
+    image:
+      repository: techx/order
+      tag: demo-placeholder
+    port: 3002
+    replicas: 1
+    strategy: Recreate
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      ORDER_PORT: "3002"
+      CATALOG_API_URL: http://catalog-api:3001
+      ORDER_STORE_TTL_MS: "3600000"
+      ORDER_STORE_MAX_RECORDS: "1000"
+

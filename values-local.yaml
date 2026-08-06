@@ -1,0 +1,20 @@
+ingress:
+  enabled: false
+networkPolicy:
+  frontendIngressCidrs:
+    # Minikube Docker node range; test pods use the Calico pod range and must
+    # not be treated as the external ingress source.
+    - 192.168.49.0/24
+workloads:
+  frontend:
+    image:
+      repository: techx/frontend
+      tag: local
+  catalog-api:
+    image:
+      repository: techx/catalog
+      tag: local
+  order-api:
+    image:
+      repository: techx/order
+      tag: local

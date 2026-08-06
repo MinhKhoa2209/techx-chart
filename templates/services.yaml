@@ -1,0 +1,20 @@
+{{- range $name, $config := .Values.workloads }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "techx.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "techx.selectorLabels" (dict "Chart" $.Chart "Values" $.Values "Release" $.Release "component" $name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $config.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
+

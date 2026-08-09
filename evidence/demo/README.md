@@ -37,3 +37,23 @@ final teardown inventory.
 - Security bootstrap: namespace enforced Pod Security `restricted`; the
   external Secret exposed only the expected `order-api-key` key name. Secret
   values were not collected.
+
+## Immediate cost-safe teardown
+
+- Teardown completed at: `2026-08-09T11:19:47+07:00`, before the approved
+  `15:00 +07:00` deadline.
+- The Argo CD Application was deleted with foreground cascading; its Ingress,
+  ALB, target group, workload resources, and namespace disappeared before
+  Terraform teardown began.
+- Terraform destroy result: `35 destroyed`; the Terraform state resource list
+  was empty.
+- Immediate and delayed inventory checks found no TechX EKS cluster, ECR
+  repository, ALB/target group, active EC2 instance, EBS volume, ENI, security
+  group, VPC, CloudWatch log group, IAM role/policy, or project Budget.
+- Resource Groups Tagging API briefly retained two historical instance and two
+  volume ARNs. Direct EC2 checks proved both instances `terminated` and both
+  volumes `NOT_FOUND`; this was tag-index lag, not live billable capacity.
+- Billing was still delayed at collection time: Cost Explorer returned `0 USD`
+  estimated for the project and account-plan credit remained `84.02 USD`.
+- Local Compose containers and the `techx-local` Minikube profile were absent;
+  Docker Desktop started for verification was stopped.

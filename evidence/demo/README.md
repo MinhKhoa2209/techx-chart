@@ -18,3 +18,22 @@ final teardown inventory.
 - `techx/order`: `sha256:c9256d847d2b668d32c2941149aa3eda41421dc3e748d0998c66cdbaffec2c2b`
 - Verification: ECR scan status `COMPLETE`, zero `CRITICAL` findings for all
   three repositories; images were built and pushed for `linux/amd64`.
+
+## Phase 8 GitOps and public acceptance
+
+- Verified at: `2026-08-09T11:09:38+07:00`
+- Chart commit: `dc7b632`
+- Argo CD Application: `techx-demo`, status `Synced/Healthy`
+- Workloads: `frontend`, `catalog-api`, and `order-api` all Available with one
+  running pod and zero restarts.
+- Temporary public URL:
+  `http://k8s-techxdem-frontend-792ecd242c-1025349452.us-east-1.elb.amazonaws.com/`
+- Public acceptance: root returned HTTP `200`; product list/detail, two order
+  submissions covering both shipping rules, and order lookup passed through
+  the frontend BFF.
+- Exposure: one internet-facing ALB, one `HTTP:80` listener, one Ingress whose
+  only backend is `frontend`; every Kubernetes Service, including Argo CD,
+  remained `ClusterIP`.
+- Security bootstrap: namespace enforced Pod Security `restricted`; the
+  external Secret exposed only the expected `order-api-key` key name. Secret
+  values were not collected.

@@ -89,10 +89,28 @@ try {
   Assert-PodHttpDenied -Deployment 'frontend' -Url 'http://example.com/'
   Write-Diagnostic 'workload-network-matrix-ready'
 
-  kubectl --context $Profile --namespace $namespace run network-deny-check --image=curlimages/curl:8.18.0 --restart=Never --command -- sleep 300
+  $denyPodOverrides = @{
+    apiVersion = 'v1'
+    spec = @{
+      securityContext = @{ seccompProfile = @{ type = 'RuntimeDefault' } }
+      containers = @(@{
+        name = 'network-deny-check'
+        image = 'techx/frontend:local'
+        imagePullPolicy = 'Never'
+        securityContext = @{
+          allowPrivilegeEscalation = $false
+          capabilities = @{ drop = @('ALL') }
+          runAsNonRoot = $true
+        }
+      })
+    }
+  } | ConvertTo-Json -Depth 8 -Compress
+  kubectl --context $Profile --namespace $namespace run network-deny-check --image=techx/frontend:local --image-pull-policy=Never --restart=Never --overrides=$denyPodOverrides --command -- node -e 'setTimeout(() => {}, 300000)'
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to create the restricted untrusted NetworkPolicy test pod.' }
   kubectl --context $Profile --namespace $namespace wait --for=condition=Ready pod/network-deny-check --timeout=120s
+  if ($LASTEXITCODE -ne 0) { throw 'The untrusted NetworkPolicy test pod did not become Ready.' }
   foreach ($url in @('http://frontend:3000/healthz', 'http://catalog-api:3001/healthz', 'http://order-api:3002/healthz')) {
-    kubectl --context $Profile --namespace $namespace exec network-deny-check -- curl --connect-timeout 2 --max-time 3 -fsS $url 2>$null
+    kubectl --context $Profile --namespace $namespace exec network-deny-check -- node -e "fetch('$url',{signal:AbortSignal.timeout(3000)}).then(()=>process.exit(0)).catch(()=>process.exit(1))" 2>$null
     if ($LASTEXITCODE -eq 0) { throw "NetworkPolicy unexpectedly allowed untrusted pod to reach $url." }
   }
   Write-Diagnostic 'untrusted-network-deny-ready'
@@ -110,8 +128,10 @@ try {
   }
   Write-Diagnostic 'rollouts-ready'
 
-  helm upgrade techx $root --namespace $namespace -f (Join-Path $root 'values-local.yaml') --set-string global.minReadySeconds=6 --kube-context $Profile --atomic --wait --timeout 5m
+  helm upgrade techx $root --namespace $namespace -f (Join-Path $root 'values-local.yaml') --set global.minReadySeconds=6 --kube-context $Profile --atomic --wait --timeout 5m
+  if ($LASTEXITCODE -ne 0) { throw 'Helm upgrade failed.' }
   helm rollback techx 1 --namespace $namespace --kube-context $Profile --wait --timeout 5m
+  if ($LASTEXITCODE -ne 0) { throw 'Helm rollback failed.' }
   Write-Diagnostic 'upgrade-rollback-ready'
 
   $pods = kubectl --context $Profile --namespace $namespace get pods -l app.kubernetes.io/instance=techx -o json | ConvertFrom-Json

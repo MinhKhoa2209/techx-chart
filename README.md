@@ -29,6 +29,31 @@ restarts Catalog, performs Helm upgrade/rollback, verifies an untrusted pod is
 denied, and uninstalls the release and workload namespace. No ALB is mocked or
 claimed as locally tested.
 
+## Phase 9 AWS acceptance and GitOps rollback
+
+After a newly reviewed AWS apply and immutable image publish, run the cloud-only
+checks in this order. The script never changes Git or pushes an image; those
+auditable changes remain explicit operator steps:
+
+```powershell
+./scripts/phase9-aws-acceptance.ps1 -Action Baseline -PublicUrl 'http://<alb-dns-name>/'
+./scripts/phase9-aws-acceptance.ps1 -Action SelfHeal
+
+# Push the reviewed values-demo.yaml commit that selects the candidate immutable tag.
+./scripts/phase9-aws-acceptance.ps1 -Action WaitRevision -ExpectedRevision '<candidate-chart-sha>' -ExpectedImageTag 'demo-<candidate-sha>'
+
+# git revert <candidate-chart-sha>, review the diff, and push the revert.
+./scripts/phase9-aws-acceptance.ps1 -Action WaitRevision -ExpectedRevision '<revert-chart-sha>' -ExpectedImageTag 'demo-<baseline-sha>'
+```
+
+`Baseline` proves Argo health, restricted Pod Security labels, the exact three
+Deployments, private backend Services, the single frontend-only Ingress, public
+security headers, request-ID correlation, and the frontend ServiceAccount's lack
+of Kubernetes API permissions. `SelfHeal` creates controlled replica drift and
+waits for convergence. `WaitRevision` ties candidate and revert evidence to an
+exact Git revision and immutable image tag. Run this only while the approved demo
+environment exists; every new apply still requires fresh owner confirmation.
+
 ## GitOps ownership
 
 `gitops/clusters/demo/application.yaml` is the only workload bootstrap object

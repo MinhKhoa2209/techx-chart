@@ -76,7 +76,18 @@ try {
   $products = Invoke-RestMethod -Uri 'http://127.0.0.1:18080/api/products' -TimeoutSec 10
   $product = if ($products.products) { $products.products[0] } else { $products[0] }
   if (-not $product.id) { throw 'Catalog response contained no product.' }
-  $body = @{ items = @(@{ productId = $product.id; quantity = 1 }) } | ConvertTo-Json -Depth 4
+  $body = @{
+    items = @(@{ productId = $product.id; quantity = 1 })
+    customer = @{ name = 'Local Kubernetes'; email = 'local-k8s@example.com' }
+    shippingAddress = @{
+      line1 = '100 Kubernetes Street'
+      city = 'Seattle'
+      region = 'WA'
+      postalCode = '98101'
+      countryCode = 'US'
+    }
+    shippingMethod = 'standard'
+  } | ConvertTo-Json -Depth 6
   $order = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18080/api/orders' -ContentType 'application/json' -Headers @{ 'Idempotency-Key' = "local-k8s-$PID" } -Body $body -TimeoutSec 10
   if (-not $order.order.id) { throw 'Order response contained no order ID.' }
   Write-Diagnostic 'business-flow-ready'

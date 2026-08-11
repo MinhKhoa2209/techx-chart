@@ -232,7 +232,8 @@ if ($Action -eq 'Baseline') {
   }
 
   $canAdmin = & kubectl @kubectlContext auth can-i '*' '*' --as="system:serviceaccount:${Namespace}:frontend" -n $Namespace
-  if ($LASTEXITCODE -ne 0 -or ($canAdmin -join '').Trim() -ne 'no') {
+  # kubectl intentionally exits 1 when the authorization answer is "no".
+  if (($canAdmin -join '').Trim() -ne 'no') {
     throw 'Frontend ServiceAccount unexpectedly has Kubernetes API permissions.'
   }
   Write-Host "Phase 9 AWS baseline passed at $(Get-Date -Format o); revision=$($app.status.sync.revision); public-only frontend and request-ID correlation verified."

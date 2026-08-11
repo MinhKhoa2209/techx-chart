@@ -91,6 +91,12 @@ final teardown inventory.
 - Read-only AWS inventory at the same checkpoint returned zero EKS clusters,
   zero `techx/` ECR repositories, zero active TechX load balancers, and zero
   non-terminated TechX EC2 instances in `us-east-1`. No AWS mutation was made.
+- A second sanitized read-only preflight at `2026-08-11T21:33:59+07:00`
+  confirmed EKS `1.35` in `STANDARD_SUPPORT`, six available AZs, `t3.medium` in
+  five AZs, EKS cluster quota `100`, standard On-Demand quota `8` vCPUs, zero
+  denied required actions, and zero resource-name conflicts. The 12-hour cost
+  model returned a `9.03 USD` upper bound, below the `60 USD` apply gate and
+  `80 USD` hard cap. This check was read-only and did not create a saved plan.
 - Consequently, current-commit Argo self-heal, candidate image auto-sync, and
   rollback-by-`git revert` have **not** been claimed as executed. The repeatable
   `scripts/phase9-aws-acceptance.ps1` workflow (`Baseline`, `Resilience`,

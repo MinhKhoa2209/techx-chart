@@ -170,3 +170,22 @@ final teardown inventory.
   environment dump, or credential-bearing screenshot was added to Git. The
   temporary ALB URL is intentionally omitted from this durable section because
   it is destroyed immediately after acceptance.
+
+## Phase 9 immediate teardown closure
+
+- Argo Application foreground deletion completed first. The workload Ingress,
+  ALB, target group, and controller-owned resources disappeared before namespace
+  deletion; namespace cleanup passed at `2026-08-11T23:25:36+07:00`.
+- Terraform destroy then completed successfully with `35 destroyed`, well before
+  the approved `2026-08-12T00:00:00+07:00` deadline. Terraform state list was
+  empty after destroy.
+- Immediate inventory at `2026-08-11T23:33:54+07:00` returned zero TechX EKS
+  clusters, ECR repositories, ALBs, target groups, active EC2 instances, EBS
+  volumes, ENIs, security groups, VPCs, CloudWatch log groups, IAM roles,
+  customer-managed IAM policies, and project Budgets.
+- Delayed inventory at `2026-08-11T23:35:43+07:00` again returned zero EKS,
+  ECR, ALB, active EC2, and VPC resources.
+- Cost Explorer at `2026-08-11T23:34:26+07:00` returned `0 USD estimated` for
+  the project on the demo date. This is explicitly a delayed Billing value, not
+  a claim that the short-lived environment has finalized at zero; the reviewed
+  three-hour upper bound was `7.32 USD`, far below the `80 USD` hard cap.

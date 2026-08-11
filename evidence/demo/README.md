@@ -117,3 +117,56 @@ final teardown inventory.
   Order pod restart.
 - No observability stack or public observability UI is deployed; JSON logs,
   probes, Kubernetes status, and private operator access are the scoped signals.
+
+## Phase 9 AWS acceptance, resilience, and GitOps rollback
+
+- Approved saved plan: SHA256
+  `d8d7b35fcaacc20df119ed958363a3cbcbb21ef2d8a434c825f35b71bce7c281`,
+  account `058114477594`, region `us-east-1`, `35 add / 0 change / 0
+  destroy`, upper bound `7.32 USD` for at most three hours, hard cap `80
+  USD`, and destroy deadline `2026-08-12T00:00:00+07:00`.
+- Terraform apply completed at approximately `2026-08-11T22:58:57+07:00`.
+  One Linux/AMD64 EKS node, all EKS add-ons, AWS Load Balancer Controller,
+  and Argo CD became Ready with zero pod restarts. A post-apply
+  `terraform plan -detailed-exitcode` returned no change.
+- The first Docker/BuildKit push produced OCI indexes with provenance. ECR
+  correctly rejected basic scanning with `UnsupportedImageTypeException`; those
+  six unscannable tags were deleted before deploy. Images were rebuilt as
+  single-platform `linux/amd64` Docker v2 manifests with provenance/SBOM indexes
+  disabled. Both immutable tags reference these verified digests:
+  - frontend: `sha256:6abd2edc12570b26798bf2d2cae43f1a2212535cf626453b94031b6575909c8f`
+  - catalog: `sha256:4d4b059befd6c2b980199b3bdfad78b7319fa3d89ba2c0c9c79fe912e1fb047a`
+  - order: `sha256:af9c0980403559cf276545f144901e0a61e4dca9aff075bd194375dad5847cc3`
+- ECR scan status was `COMPLETE` with zero `CRITICAL` findings for all three
+  digests before deploy. Baseline tag was `demo-576e538`; candidate tag was
+  `demo-409530f`.
+- Baseline chart commit `526bec9a2fd7abfb361ed3dfe86575ccb0925337`
+  converged to Argo CD `Synced/Healthy`. The temporary public frontend returned
+  `200` through one active internet-facing ALB, one `HTTP:80` listener, one
+  healthy target group, and a single Ingress backend named `frontend`. Catalog,
+  Order, Argo CD, and administrative services remained private `ClusterIP`.
+- `phase9-aws-acceptance.ps1 -Action Baseline` passed at
+  `2026-08-11T23:16:45+07:00`: exact workload count, one Ready replica each,
+  restricted Pod Security/runtime contexts, security headers, request-ID
+  propagation into Catalog logs, and frontend ServiceAccount denial were
+  verified.
+- `-Action Resilience` passed at `2026-08-11T23:18:23+07:00`: concurrent
+  double-submit returned `201/200` for one order ID; controlled burst produced
+  expected `429` while health/catalog stayed `200`; workload and untrusted-pod
+  NetworkPolicy allow/deny checks passed; controlled Catalog outage returned
+  bounded public `503` and self-recovered; replacing the Order pod restored
+  health and returned documented `ORDER_NOT_FOUND/404` for in-memory data.
+- `-Action SelfHeal` passed at `2026-08-11T23:18:51+07:00`: manual frontend
+  replica drift `1 -> 2` converged automatically back to `1`, with Argo CD
+  returning `Synced/Healthy`.
+- Candidate image-only commit
+  `0f22ea5402b3f6fd0110445b4389bf56eb22efe3` auto-synced and passed
+  `WaitRevision` at `2026-08-11T23:20:45+07:00`; every running image ID matched
+  its ECR digest. Official rollback used `git revert` and produced commit
+  `de2bf274baaa1b9a7a18b960b6f785c56af8b1e7`, which converged to baseline tag
+  `demo-576e538` and passed the same revision/tag/scan/runtime-digest gate at
+  `2026-08-11T23:22:09+07:00`.
+- No kubeconfig, token, Secret value, Terraform state/saved plan, full
+  environment dump, or credential-bearing screenshot was added to Git. The
+  temporary ALB URL is intentionally omitted from this durable section because
+  it is destroyed immediately after acceptance.

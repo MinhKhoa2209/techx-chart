@@ -3,14 +3,14 @@ workloads:
     image:
       repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/frontend
       # Verified ECR digest: sha256:6abd2edc12570b26798bf2d2cae43f1a2212535cf626453b94031b6575909c8f
-      tag: demo-409530f
+      tag: demo-576e538
   catalog-api:
     image:
       repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/catalog
       # Verified ECR digest: sha256:4d4b059befd6c2b980199b3bdfad78b7319fa3d89ba2c0c9c79fe912e1fb047a
-      tag: demo-409530f
+      tag: demo-576e538
   order-api:
     image:
       repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/order
       # Verified ECR digest: sha256:af9c0980403559cf276545f144901e0a61e4dca9aff075bd194375dad5847cc3
-      tag: demo-409530f
+      tag: demo-576e538

@@ -93,7 +93,8 @@ final teardown inventory.
   non-terminated TechX EC2 instances in `us-east-1`. No AWS mutation was made.
 - Consequently, current-commit Argo self-heal, candidate image auto-sync, and
   rollback-by-`git revert` have **not** been claimed as executed. The repeatable
-  `scripts/phase9-aws-acceptance.ps1` workflow is syntax/static verified, but it
+  `scripts/phase9-aws-acceptance.ps1` workflow (`Baseline`, `Resilience`,
+  `SelfHeal`, and candidate/revert `WaitRevision`) is syntax/static verified, but it
   requires a newly reviewed plan and fresh owner approval before another apply.
   The Phase 8 cloud evidence above applies only to the older immutable
   `demo-5a9137e` deployment.

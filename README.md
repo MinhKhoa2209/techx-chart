@@ -37,6 +37,7 @@ auditable changes remain explicit operator steps:
 
 ```powershell
 ./scripts/phase9-aws-acceptance.ps1 -Action Baseline -PublicUrl 'http://<alb-dns-name>/'
+./scripts/phase9-aws-acceptance.ps1 -Action Resilience -PublicUrl 'http://<alb-dns-name>/'
 ./scripts/phase9-aws-acceptance.ps1 -Action SelfHeal
 
 # Push the reviewed values-demo.yaml commit that selects the candidate immutable tag.
@@ -46,13 +47,21 @@ auditable changes remain explicit operator steps:
 ./scripts/phase9-aws-acceptance.ps1 -Action WaitRevision -ExpectedRevision '<revert-chart-sha>' -ExpectedImageTag 'demo-<baseline-sha>'
 ```
 
-`Baseline` proves Argo health, restricted Pod Security labels, the exact three
-Deployments, private backend Services, the single frontend-only Ingress, public
-security headers, request-ID correlation, and the frontend ServiceAccount's lack
-of Kubernetes API permissions. `SelfHeal` creates controlled replica drift and
-waits for convergence. `WaitRevision` ties candidate and revert evidence to an
-exact Git revision and immutable image tag. Run this only while the approved demo
+`Baseline` proves Argo health, restricted Pod Security/runtime contexts, the
+exact three Deployments, private backend Services, the single frontend-only
+Ingress, active ALB/HTTP:80/target health, public security headers, request-ID
+correlation, and the frontend ServiceAccount's lack of Kubernetes API
+permissions. `Resilience` covers double-submit, rate limiting,
+request-ID logs, the workload allow/deny matrix, a bounded Catalog outage and
+recovery, and the documented Order data loss after pod restart. `SelfHeal` creates
+controlled replica drift and waits for convergence. `WaitRevision` ties candidate
+and revert evidence to an exact Git revision, immutable ECR tag/digest, completed
+zero-critical scan, and runtime image IDs. Run this only while the approved demo
 environment exists; every new apply still requires fresh owner confirmation.
+
+The repository verifier also runs `scripts/evidence-audit.ps1`, which rejects
+tracked state/key artifacts and common credential patterns and requires every
+Phase 7–9, teardown, and limitation evidence section to remain present.
 
 ## GitOps ownership
 

@@ -189,3 +189,9 @@ final teardown inventory.
   the project on the demo date. This is explicitly a delayed Billing value, not
   a claim that the short-lived environment has finalized at zero; the reviewed
   three-hour upper bound was `7.32 USD`, far below the `80 USD` hard cap.
+- After this teardown evidence was committed, local saved plans, private
+  approval/preflight files, empty Terraform state/state backup, and one stray
+  generated plan artifact were deleted. The `techx-demo` kubeconfig
+  context/cluster/user entries were removed and Docker Desktop was stopped.
+  Final AWS inventory at `2026-08-11T23:38:17+07:00` remained zero for EKS,
+  ECR, ALB, active EC2, and VPC resources.

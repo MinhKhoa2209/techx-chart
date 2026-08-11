@@ -57,3 +57,56 @@ final teardown inventory.
   estimated for the project and account-plan credit remained `84.02 USD`.
 - Local Compose containers and the `techx-local` Minikube profile were absent;
   Docker Desktop started for verification was stopped.
+
+## Phase 9 local acceptance and current cloud state
+
+- Verified at: `2026-08-11T21:19:01+07:00`.
+- Platform commit: `409530f`; chart commit: `bb7198f`. The runtime source in
+  the three images is unchanged from platform application commit `576e538`;
+  `409530f` adds only the repeatable resilience gate and its documentation.
+- Local Linux/AMD64 image content IDs:
+  - frontend: `sha256:2c47d3bf71e4a3496f60b02641ada48c769afda48a802f5d6fc7b06d058b3b73`
+  - catalog: `sha256:54255b1a034507c8cb45b96e54882bfa5905d20f014aa928f2f54a6c15e1517d`
+  - order: `sha256:e2b8b20956fa986fefd2e8b3c53f03e837fd87ef3c56f66752059b74c2c747ec`
+- Commands and concise results:
+  - `techx-platform/scripts/verify.ps1`: 38 tests, TypeScript, formatting,
+    lint, hard-code audit, and production build passed.
+  - `docker compose build`, `docker compose up -d --wait`, then
+    `container-smoke.ps1`, `container-recovery.ps1`,
+    `container-resilience.ps1`, `container-soak.ps1 -DurationSeconds 60
+    -BurstRequests 30`, and `container-audit.ps1`: passed. This proved
+    concurrent idempotent double-submit (`201/200` with one order ID), bounded
+    dependency `503`, Catalog recovery, documented Order data loss and service
+    recovery after restart, request-ID correlation, secret log redaction,
+    controlled `429`, no restart cascade, and hardened Linux/AMD64 containers.
+  - `techx-chart/scripts/local-k8s.ps1 -Action Test` followed by `-Action
+    Cleanup`: passed after correcting the test payload to the documented Order
+    v2 contract. It proved the three workloads, probes, restricted namespace,
+    Secret mount, full NetworkPolicy allow/deny matrix, untrusted-pod denial,
+    all workload rollouts, Helm upgrade/rollback, no unexpected restart/OOM,
+    uninstall, namespace deletion, and Minikube profile deletion.
+  - `techx-chart/scripts/verify.ps1` and `techx-infra/scripts/verify.ps1`:
+    Helm/schema/manifest/GitOps assertions and Terraform validate/static
+    security checks passed.
+- Read-only AWS inventory at the same checkpoint returned zero EKS clusters,
+  zero `techx/` ECR repositories, zero active TechX load balancers, and zero
+  non-terminated TechX EC2 instances in `us-east-1`. No AWS mutation was made.
+- Consequently, current-commit Argo self-heal, candidate image auto-sync, and
+  rollback-by-`git revert` have **not** been claimed as executed. The repeatable
+  `scripts/phase9-aws-acceptance.ps1` workflow is syntax/static verified, but it
+  requires a newly reviewed plan and fresh owner approval before another apply.
+  The Phase 8 cloud evidence above applies only to the older immutable
+  `demo-5a9137e` deployment.
+- No screenshots were added because sanitized command results are stronger for
+  these local gates. No kubeconfig, token, Secret value, Terraform state, saved
+  plan, or full environment dump was collected.
+
+## Demo limitations
+
+- The temporary entry point is HTTP on an ALB DNS name; there is no custom
+  domain or TLS certificate in this internship thin slice.
+- The cluster uses one node and is not a high-availability production design.
+- Orders and idempotency records are in memory and are intentionally lost on an
+  Order pod restart.
+- No observability stack or public observability UI is deployed; JSON logs,
+  probes, Kubernetes status, and private operator access are the scoped signals.

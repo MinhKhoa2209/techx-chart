@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $rendered = Join-Path ([System.IO.Path]::GetTempPath()) "techx-chart-$PID.yaml"
+$domainRendered = Join-Path ([System.IO.Path]::GetTempPath()) "techx-chart-domain-$PID.yaml"
 
 try {
   helm lint $root -f (Join-Path $root 'values-demo.yaml')
@@ -9,8 +10,16 @@ try {
   $manifest = helm template techx $root -f (Join-Path $root 'values-demo.yaml')
   if ($LASTEXITCODE -ne 0) { throw 'helm template failed.' }
   $manifest | Set-Content -LiteralPath $rendered -Encoding utf8
-  python (Join-Path $root 'tests/assert_manifests.py') $rendered
+  python (Join-Path $root 'tests/assert_manifests.py') $rendered baseline
   if ($LASTEXITCODE -ne 0) { throw 'Manifest assertions failed.' }
+
+  helm lint $root -f (Join-Path $root 'values-demo.yaml') -f (Join-Path $root 'values-domain-vpn.yaml')
+  if ($LASTEXITCODE -ne 0) { throw 'domain/VPN helm lint failed.' }
+  $domainManifest = helm template techx $root -f (Join-Path $root 'values-demo.yaml') -f (Join-Path $root 'values-domain-vpn.yaml')
+  if ($LASTEXITCODE -ne 0) { throw 'domain/VPN helm template failed.' }
+  $domainManifest | Set-Content -LiteralPath $domainRendered -Encoding utf8
+  python (Join-Path $root 'tests/assert_manifests.py') $domainRendered domainVpn
+  if ($LASTEXITCODE -ne 0) { throw 'Domain/VPN manifest assertions failed.' }
 
   $negativeCases = @(
     @('--set-string', 'workloads.frontend.image.tag=latest'),
@@ -30,4 +39,5 @@ try {
 }
 finally {
   Remove-Item -LiteralPath $rendered -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $domainRendered -Force -ErrorAction SilentlyContinue
 }

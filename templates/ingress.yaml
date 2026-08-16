@@ -7,7 +7,17 @@ metadata:
     {{- include "techx.labels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
   annotations:
+    {{- if eq .Values.ingress.profile "domainVpn" }}
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/group.name: {{ .Values.ingress.groupName | quote }}
+    alb.ingress.kubernetes.io/group.order: {{ .Values.ingress.groupOrder | quote }}
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    alb.ingress.kubernetes.io/success-codes: "200"
+    {{- else }}
     {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:
@@ -21,4 +31,3 @@ spec:
                 port:
                   number: {{ .Values.workloads.frontend.port }}
 {{- end }}
-

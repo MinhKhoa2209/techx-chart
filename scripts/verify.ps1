@@ -17,7 +17,12 @@ if ($parseErrors) {
   throw "Phase 9 AWS acceptance script has syntax errors: $($parseErrors.Message -join '; ')"
 }
 $phase9Content = Get-Content -Raw -LiteralPath $phase9Script
-foreach ($marker in @("'Baseline'", "'Resilience'", "'SelfHeal'", "'WaitRevision'", 'Idempotency-Key', 'NetworkPolicy', 'ORDER_NOT_FOUND')) {
+foreach ($marker in @(
+    "'Baseline'", "'Resilience'", "'SelfHeal'", "'WaitRevision'",
+    "'domainVpn'", "'Public'", "'Private'", 'cloudfront',
+    'describe-client-vpn-endpoints', '/argocd/api/v1/session?probe=1',
+    'Idempotency-Key', 'NetworkPolicy', 'ORDER_NOT_FOUND'
+  )) {
   if (-not $phase9Content.Contains($marker, [System.StringComparison]::Ordinal)) {
     throw "Phase 9 AWS acceptance script is missing required coverage marker: $marker"
   }

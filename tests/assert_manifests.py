@@ -13,6 +13,7 @@ def require(condition: bool, message: str) -> None:
 
 
 rendered = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8-sig")
+profile = sys.argv[2] if len(sys.argv) > 2 else "baseline"
 docs = [doc for doc in yaml.safe_load_all(rendered) if doc]
 by_kind = collections.defaultdict(list)
 for doc in docs:
@@ -37,6 +38,16 @@ require(len(paths) == 1, "Ingress must expose one route")
 require(paths[0]["path"] == "/", "Ingress must only expose the root prefix")
 require(paths[0]["backend"]["service"]["name"] == "frontend", "Ingress must only target frontend")
 require(ingress["spec"]["ingressClassName"] == "alb", "demo Ingress must use ALB")
+annotations = ingress["metadata"]["annotations"]
+if profile == "baseline":
+    require(annotations["alb.ingress.kubernetes.io/scheme"] == "internet-facing", "baseline ALB must be public")
+    require(annotations["alb.ingress.kubernetes.io/listen-ports"] == '[{"HTTP":80}]', "baseline listener mismatch")
+else:
+    require("alb.ingress.kubernetes.io/scheme" not in annotations, "Argo ingress must own the shared ALB scheme")
+    require(annotations["alb.ingress.kubernetes.io/group.name"] == "techx-private", "shared IngressGroup mismatch")
+    require(annotations["alb.ingress.kubernetes.io/group.order"] == "20", "frontend must follow the Argo path rule")
+    require(annotations["alb.ingress.kubernetes.io/listen-ports"] == '[{"HTTP":80},{"HTTPS":443}]', "domain/VPN listeners mismatch")
+    require("alb.ingress.kubernetes.io/inbound-cidrs" not in annotations, "domain/VPN ingress must not open a CIDR")
 
 for deployment in by_kind["Deployment"]:
     name = deployment["metadata"]["name"]
@@ -60,10 +71,9 @@ require("kind: LoadBalancer" not in rendered and "type: NodePort" not in rendere
 
 app_path = pathlib.Path(__file__).parents[1] / "gitops" / "clusters" / "demo" / "application.yaml"
 app = yaml.safe_load(app_path.read_text(encoding="utf-8"))
-require(app["spec"]["source"]["helm"]["valueFiles"] == ["values-demo.yaml"], "Argo value file mismatch")
+require(app["spec"]["source"]["helm"]["valueFiles"] == ["values-demo.yaml", "values-domain-vpn.yaml"], "Argo value file mismatch")
 require(app["spec"]["syncPolicy"]["automated"] == {"prune": True, "selfHeal": True, "allowEmpty": False}, "Argo automated sync mismatch")
 require("resources-finalizer.argocd.argoproj.io" in app["metadata"]["finalizers"], "Argo finalizer missing")
 require("CreateNamespace=true" in app["spec"]["syncPolicy"]["syncOptions"], "Argo namespace creation missing")
 
 print("Helm manifest and Argo CD assertions passed.")
-

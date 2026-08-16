@@ -1,6 +1,10 @@
 param(
   [ValidateSet('Baseline', 'Resilience', 'SelfHeal', 'WaitRevision')]
   [string]$Action = 'Baseline',
+  [ValidateSet('baseline', 'domainVpn')]
+  [string]$ExposureProfile = 'baseline',
+  [ValidateSet('Public', 'Private')]
+  [string]$NetworkView = 'Public',
   [string]$PublicUrl = '',
   [string]$ExpectedRevision = '',
   [string]$ExpectedImageTag = '',
@@ -24,6 +28,122 @@ function Invoke-AwsJson([string[]]$Arguments) {
   $raw = & aws @Arguments --region $Region --output json
   if ($LASTEXITCODE -ne 0) { throw "aws failed: $($Arguments -join ' ')" }
   return $raw | ConvertFrom-Json
+}
+
+function Assert-UrlContract {
+  if (-not $PublicUrl) { throw 'PublicUrl is required.' }
+  $uri = [uri]$PublicUrl
+  if ($ExposureProfile -eq 'baseline' -and $uri.Scheme -ne 'http') {
+    throw 'The baseline profile requires the approved temporary HTTP ALB URL.'
+  }
+  if ($ExposureProfile -eq 'domainVpn' -and $uri.Scheme -ne 'https') {
+    throw 'The domainVpn profile requires an HTTPS custom-domain URL.'
+  }
+  if ($ExposureProfile -eq 'domainVpn' -and $uri.Host -ne 'shop.dinhminhkhoa.id.vn') {
+    throw "The domainVpn URL must use shop.dinhminhkhoa.id.vn, received '$($uri.Host)'."
+  }
+}
+
+function Assert-DomainVpnExposure {
+  $publicHost = ([uri]$PublicUrl).Host
+  $frontendIngress = Invoke-KubectlJson @('-n', $Namespace, 'get', 'ingress', 'frontend')
+  $argoIngresses = Invoke-KubectlJson @('-n', 'argocd', 'get', 'ingresses')
+  if ($argoIngresses.items.Count -ne 1) { throw "Expected one Argo CD Ingress, found $($argoIngresses.items.Count)." }
+  $argoIngress = $argoIngresses.items[0]
+
+  foreach ($ingress in @($frontendIngress, $argoIngress)) {
+    if ($ingress.metadata.annotations.'alb.ingress.kubernetes.io/group.name' -ne 'techx-private') {
+      throw "$($ingress.metadata.namespace)/$($ingress.metadata.name) is not in the techx-private IngressGroup."
+    }
+  }
+  if ($argoIngress.metadata.annotations.'alb.ingress.kubernetes.io/group.order' -ne '10' -or
+      $frontendIngress.metadata.annotations.'alb.ingress.kubernetes.io/group.order' -ne '20') {
+    throw 'Argo CD must have group order 10 before the frontend catch-all order 20.'
+  }
+  $frontendBackends = @($frontendIngress.spec.rules.http.paths.backend.service.name | Sort-Object -Unique)
+  if (($frontendBackends -join ',') -ne 'frontend') { throw 'The workload Ingress must expose only frontend.' }
+  $argoBackends = @($argoIngress.spec.rules.http.paths.backend.service.name | Sort-Object -Unique)
+  if ($argoBackends -notcontains 'argocd-server') { throw 'The private Ingress does not route /argocd to argocd-server.' }
+
+  $frontendAlbHost = [string]$frontendIngress.status.loadBalancer.ingress[0].hostname
+  $argoAlbHost = [string]$argoIngress.status.loadBalancer.ingress[0].hostname
+  if (-not $frontendAlbHost -or $frontendAlbHost -ne $argoAlbHost) {
+    throw 'Frontend and Argo CD do not share exactly one ALB.'
+  }
+  $loadBalancers = Invoke-AwsJson @('elbv2', 'describe-load-balancers')
+  $loadBalancer = @($loadBalancers.LoadBalancers | Where-Object { $_.DNSName -eq $frontendAlbHost })
+  if ($loadBalancer.Count -ne 1 -or $loadBalancer[0].Scheme -ne 'internal' -or $loadBalancer[0].State.Code -ne 'active') {
+    throw 'The shared IngressGroup does not resolve to one active internal ALB.'
+  }
+  $listeners = Invoke-AwsJson @('elbv2', 'describe-listeners', '--load-balancer-arn', $loadBalancer[0].LoadBalancerArn)
+  $listenerContract = @($listeners.Listeners | ForEach-Object { "$($_.Protocol):$($_.Port)" } | Sort-Object)
+  if (($listenerContract -join ',') -ne 'HTTP:80,HTTPS:443') {
+    throw "The internal ALB listener contract is invalid: $($listenerContract -join ', ')."
+  }
+  $targetGroups = Invoke-AwsJson @('elbv2', 'describe-target-groups', '--load-balancer-arn', $loadBalancer[0].LoadBalancerArn)
+  if ($targetGroups.TargetGroups.Count -lt 2) { throw 'The shared ALB must have frontend and Argo CD target groups.' }
+  foreach ($targetGroup in $targetGroups.TargetGroups) {
+    $targetHealth = Invoke-AwsJson @('elbv2', 'describe-target-health', '--target-group-arn', $targetGroup.TargetGroupArn)
+    if ($targetHealth.TargetHealthDescriptions.Count -lt 1 -or
+        @($targetHealth.TargetHealthDescriptions | Where-Object { $_.TargetHealth.State -ne 'healthy' }).Count -gt 0) {
+      throw "ALB target group $($targetGroup.TargetGroupName) is not fully healthy."
+    }
+  }
+
+  $distributions = Invoke-AwsJson @('cloudfront', 'list-distributions')
+  $distribution = @($distributions.DistributionList.Items | Where-Object { $_.Aliases.Items -contains $publicHost })
+  if ($distribution.Count -ne 1 -or $distribution[0].Status -ne 'Deployed' -or -not $distribution[0].Enabled) {
+    throw "Expected one enabled, Deployed CloudFront distribution for $publicHost."
+  }
+  $distributionConfig = Invoke-AwsJson @('cloudfront', 'get-distribution-config', '--id', $distribution[0].Id)
+  if (-not $distributionConfig.DistributionConfig.Origins.Items[0].VpcOriginConfig.VpcOriginId) {
+    throw 'CloudFront does not use a VPC origin.'
+  }
+  if ($distributionConfig.DistributionConfig.DefaultCacheBehavior.FunctionAssociations.Quantity -lt 1) {
+    throw 'CloudFront has no viewer-request function to block the Argo CD path.'
+  }
+
+  $vpn = Invoke-AwsJson @('ec2', 'describe-client-vpn-endpoints')
+  $endpoints = @($vpn.ClientVpnEndpoints | Where-Object { $_.Status.Code -eq 'available' -and $_.DnsName })
+  if ($endpoints.Count -ne 1) { throw "Expected one available Client VPN endpoint, found $($endpoints.Count)." }
+  if (@($endpoints[0].DnsServers) -notcontains '10.42.0.2' -or -not $endpoints[0].SplitTunnel) {
+    throw 'Client VPN must use split tunnel and the VPC resolver at 10.42.0.2.'
+  }
+  $associations = Invoke-AwsJson @('ec2', 'describe-client-vpn-target-networks', '--client-vpn-endpoint-id', $endpoints[0].ClientVpnEndpointId)
+  if ($associations.ClientVpnTargetNetworks.Count -ne 1 -or $associations.ClientVpnTargetNetworks[0].Status.Code -ne 'associated') {
+    throw 'Client VPN must have exactly one associated target network.'
+  }
+  $authorizations = Invoke-AwsJson @('ec2', 'describe-client-vpn-authorization-rules', '--client-vpn-endpoint-id', $endpoints[0].ClientVpnEndpointId)
+  $vpcAuthorization = @($authorizations.AuthorizationRules | Where-Object {
+      $_.DestinationCidr -eq '10.42.0.0/16' -and $_.AccessAll -eq $true -and $_.Status.Code -eq 'active'
+    })
+  if ($vpcAuthorization.Count -ne 1) { throw 'Client VPN does not have the expected active VPC authorization rule.' }
+  $zones = Invoke-AwsJson @('route53', 'list-hosted-zones-by-name', '--dns-name', $publicHost)
+  $privateZones = @($zones.HostedZones | Where-Object {
+      $_.Name.TrimEnd('.') -eq $publicHost -and $_.Config.PrivateZone -eq $true
+    })
+  if ($privateZones.Count -ne 1) { throw "Expected one private hosted zone for $publicHost." }
+
+  if ($NetworkView -eq 'Public') {
+    $resolved = @(Resolve-DnsName -Name $publicHost -Type A -ErrorAction Stop | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+    if ($resolved.Count -lt 1 -or @($resolved | Where-Object { $_ -match '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' }).Count -gt 0) {
+      throw "Public DNS unexpectedly returned a private address: $($resolved -join ', ')."
+    }
+    foreach ($path in @('/argocd', '/argocd/', '/argocd/api/v1/session?probe=1')) {
+      $blocked = Invoke-WebRequest -Uri "https://$publicHost$path" -TimeoutSec 15 -SkipHttpErrorCheck
+      if ($blocked.StatusCode -ne 403) { throw "Public $path returned $($blocked.StatusCode), expected 403." }
+    }
+  }
+  else {
+    $resolved = @(Resolve-DnsName -Name $publicHost -Type A -ErrorAction Stop | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+    if ($resolved.Count -lt 1 -or @($resolved | Where-Object { $_ -notmatch '^10\.42\.' }).Count -gt 0) {
+      throw "VPN split-view DNS did not return private VPC addresses: $($resolved -join ', ')."
+    }
+    $argo = Invoke-WebRequest -Uri "https://$publicHost/argocd/" -MaximumRedirection 0 -TimeoutSec 15 -SkipHttpErrorCheck
+    if ($argo.StatusCode -notin @(200, 301, 302, 307, 308)) {
+      throw "Private Argo CD path returned $($argo.StatusCode)."
+    }
+  }
 }
 
 function Get-Application {
@@ -139,9 +259,7 @@ function Assert-PodHttp([string]$Deployment, [string]$Url, [bool]$Allowed) {
 }
 
 if ($Action -eq 'Baseline') {
-  if (-not $PublicUrl.StartsWith('http://')) {
-    throw 'Baseline requires the approved temporary HTTP ALB PublicUrl.'
-  }
+  Assert-UrlContract
   $app = Wait-Argo
   Assert-ArgoHealthy $app
 
@@ -188,30 +306,35 @@ if ($Action -eq 'Baseline') {
   foreach ($service in $services.items) {
     if ($service.spec.type -ne 'ClusterIP') { throw "$($service.metadata.name) is publicly typed as $($service.spec.type)." }
   }
-  $ingresses = Invoke-KubectlJson @('-n', $Namespace, 'get', 'ingresses')
-  if ($ingresses.items.Count -ne 1) { throw "Expected one Ingress, found $($ingresses.items.Count)." }
-  $backends = @($ingresses.items[0].spec.rules.http.paths.backend.service.name | Sort-Object -Unique)
-  if (($backends -join ',') -ne 'frontend') { throw "Ingress exposes unexpected backend(s): $($backends -join ', ')." }
-  $ingressHost = [string]$ingresses.items[0].status.loadBalancer.ingress[0].hostname
-  $publicHost = ([uri]$PublicUrl).Host
-  if (-not $ingressHost -or $ingressHost -ne $publicHost) {
-    throw "PublicUrl host '$publicHost' does not match Ingress host '$ingressHost'."
+  if ($ExposureProfile -eq 'domainVpn') {
+    Assert-DomainVpnExposure
   }
-  $loadBalancers = Invoke-AwsJson @('elbv2', 'describe-load-balancers')
-  $loadBalancer = @($loadBalancers.LoadBalancers | Where-Object { $_.DNSName -eq $ingressHost })
-  if ($loadBalancer.Count -ne 1 -or $loadBalancer[0].Scheme -ne 'internet-facing' -or $loadBalancer[0].State.Code -ne 'active') {
-    throw 'Ingress does not resolve to exactly one active internet-facing ALB.'
-  }
-  $listeners = Invoke-AwsJson @('elbv2', 'describe-listeners', '--load-balancer-arn', $loadBalancer[0].LoadBalancerArn)
-  if ($listeners.Listeners.Count -ne 1 -or $listeners.Listeners[0].Port -ne 80 -or $listeners.Listeners[0].Protocol -ne 'HTTP') {
-    throw 'The public ALB must have exactly one HTTP:80 listener.'
-  }
-  $targetGroups = Invoke-AwsJson @('elbv2', 'describe-target-groups', '--load-balancer-arn', $loadBalancer[0].LoadBalancerArn)
-  if ($targetGroups.TargetGroups.Count -ne 1) { throw 'The public ALB must have exactly one target group.' }
-  $targetHealth = Invoke-AwsJson @('elbv2', 'describe-target-health', '--target-group-arn', $targetGroups.TargetGroups[0].TargetGroupArn)
-  if ($targetHealth.TargetHealthDescriptions.Count -lt 1 -or
-      @($targetHealth.TargetHealthDescriptions | Where-Object { $_.TargetHealth.State -ne 'healthy' }).Count -gt 0) {
-    throw 'The frontend ALB target group is not fully healthy.'
+  else {
+    $ingresses = Invoke-KubectlJson @('-n', $Namespace, 'get', 'ingresses')
+    if ($ingresses.items.Count -ne 1) { throw "Expected one Ingress, found $($ingresses.items.Count)." }
+    $backends = @($ingresses.items[0].spec.rules.http.paths.backend.service.name | Sort-Object -Unique)
+    if (($backends -join ',') -ne 'frontend') { throw "Ingress exposes unexpected backend(s): $($backends -join ', ')." }
+    $ingressHost = [string]$ingresses.items[0].status.loadBalancer.ingress[0].hostname
+    $publicHost = ([uri]$PublicUrl).Host
+    if (-not $ingressHost -or $ingressHost -ne $publicHost) {
+      throw "PublicUrl host '$publicHost' does not match Ingress host '$ingressHost'."
+    }
+    $loadBalancers = Invoke-AwsJson @('elbv2', 'describe-load-balancers')
+    $loadBalancer = @($loadBalancers.LoadBalancers | Where-Object { $_.DNSName -eq $ingressHost })
+    if ($loadBalancer.Count -ne 1 -or $loadBalancer[0].Scheme -ne 'internet-facing' -or $loadBalancer[0].State.Code -ne 'active') {
+      throw 'Ingress does not resolve to exactly one active internet-facing ALB.'
+    }
+    $listeners = Invoke-AwsJson @('elbv2', 'describe-listeners', '--load-balancer-arn', $loadBalancer[0].LoadBalancerArn)
+    if ($listeners.Listeners.Count -ne 1 -or $listeners.Listeners[0].Port -ne 80 -or $listeners.Listeners[0].Protocol -ne 'HTTP') {
+      throw 'The public ALB must have exactly one HTTP:80 listener.'
+    }
+    $targetGroups = Invoke-AwsJson @('elbv2', 'describe-target-groups', '--load-balancer-arn', $loadBalancer[0].LoadBalancerArn)
+    if ($targetGroups.TargetGroups.Count -ne 1) { throw 'The public ALB must have exactly one target group.' }
+    $targetHealth = Invoke-AwsJson @('elbv2', 'describe-target-health', '--target-group-arn', $targetGroups.TargetGroups[0].TargetGroupArn)
+    if ($targetHealth.TargetHealthDescriptions.Count -lt 1 -or
+        @($targetHealth.TargetHealthDescriptions | Where-Object { $_.TargetHealth.State -ne 'healthy' }).Count -gt 0) {
+      throw 'The frontend ALB target group is not fully healthy.'
+    }
   }
 
   $response = Invoke-WebRequest -Uri $PublicUrl -TimeoutSec 15
@@ -236,14 +359,12 @@ if ($Action -eq 'Baseline') {
   if (($canAdmin -join '').Trim() -ne 'no') {
     throw 'Frontend ServiceAccount unexpectedly has Kubernetes API permissions.'
   }
-  Write-Host "Phase 9 AWS baseline passed at $(Get-Date -Format o); revision=$($app.status.sync.revision); public-only frontend and request-ID correlation verified."
+  Write-Host "Phase 9 AWS baseline passed at $(Get-Date -Format o); profile=$ExposureProfile; view=$NetworkView; revision=$($app.status.sync.revision); exposure and request-ID correlation verified."
   exit 0
 }
 
 if ($Action -eq 'Resilience') {
-  if (-not $PublicUrl.StartsWith('http://')) {
-    throw 'Resilience requires the approved temporary HTTP ALB PublicUrl.'
-  }
+  Assert-UrlContract
   $app = Wait-Argo
   Assert-ArgoHealthy $app
   $baseUrl = $PublicUrl.TrimEnd('/')

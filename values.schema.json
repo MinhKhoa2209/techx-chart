@@ -41,12 +41,15 @@
     "ingress": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "className", "annotations", "path"],
+      "required": ["enabled", "profile", "className", "annotations", "path", "groupName", "groupOrder"],
       "properties": {
         "enabled": {"type": "boolean"},
+        "profile": {"enum": ["baseline", "domainVpn"]},
         "className": {"type": "string", "minLength": 1},
         "annotations": {"type": "object", "additionalProperties": {"type": "string"}},
-        "path": {"type": "string", "pattern": "^/"}
+        "path": {"type": "string", "pattern": "^/"},
+        "groupName": {"type": "string", "minLength": 1},
+        "groupOrder": {"type": "integer", "minimum": 1, "maximum": 1000}
       }
     },
     "workloads": {
@@ -95,4 +98,3 @@
     }
   }
 }
-

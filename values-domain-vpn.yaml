@@ -1,0 +1,6 @@
+ingress:
+  enabled: true
+  profile: domainVpn
+  groupName: techx-private
+  groupOrder: 20
+

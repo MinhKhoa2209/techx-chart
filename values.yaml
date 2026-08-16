@@ -23,6 +23,7 @@ networkPolicy:
 
 ingress:
   enabled: true
+  profile: baseline
   className: alb
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -36,6 +37,8 @@ ingress:
     alb.ingress.kubernetes.io/load-balancer-attributes: deletion_protection.enabled=false
     alb.ingress.kubernetes.io/tags: Project=techx,Environment=demo,ManagedBy=kubernetes
   path: /
+  groupName: techx-private
+  groupOrder: 20
 
 workloads:
   frontend:
@@ -90,4 +93,3 @@ workloads:
       CATALOG_API_URL: http://catalog-api:3001
       ORDER_STORE_TTL_MS: "3600000"
       ORDER_STORE_MAX_RECORDS: "1000"
-

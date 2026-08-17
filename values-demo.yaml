@@ -2,15 +2,15 @@ workloads:
   frontend:
     image:
       repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/frontend
-      # Verified ECR digest: sha256:a5d64d7de4087fec11b94b332f2db0fe1cdb1f03c6472a2cc8536cb443fa54c0
-      tag: ui-73f9cb2
+      # Verified ECR digest: sha256:6d185c553195477986b47d2e7a84e561cdefe3eb19cbf5869bf8061ef6ef035e
+      tag: demo-c77f50a8c32c
   catalog-api:
     image:
       repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/catalog
-      # Verified ECR digest: sha256:0a7513cdd2621d6dc93a82241c28fe8db40a3c439f18e24bacc3bce49d8db700
-      tag: ui-73f9cb2
+      # Verified ECR digest: sha256:c09b137b7aa956cd6c0d2531ee8369cfc278529f361c2dd487a981e2e8a29978
+      tag: demo-c77f50a8c32c
   order-api:
     image:
       repository: 058114477594.dkr.ecr.us-east-1.amazonaws.com/techx/order
-      # Verified ECR digest: sha256:a04035f1d8f17a1f0fca75baebcb92deff0fb5b9526c4e90fa8c500465aa6f11
-      tag: ui-73f9cb2
+      # Verified ECR digest: sha256:048c41f0f40c0f205d545d4cdf5ae70e22f323a33fa1eaae6089977501876eb7
+      tag: demo-c77f50a8c32c
